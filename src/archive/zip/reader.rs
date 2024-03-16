@@ -22,7 +22,13 @@ impl ZipFileReader {
     const CENTRAL_DIRECTORY_ENTRY_SIGNATURE: [u8; 4] = [0x50, 0x4B, 0x01, 0x02];
 
     pub fn new<P: AsRef<Path>>(path: P, encoding: String) -> ZipFileReader {
-        let file = File::open(path).unwrap();
+        let file = match File::open(&path) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Can not open {:?}. Because {}", path.as_ref(), e);
+                std::process::exit(1);
+            }
+        };
         ZipFileReader {
             metadata: file.metadata().unwrap(),
             reader: BufReader::new(file),
