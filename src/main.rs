@@ -218,7 +218,7 @@ fn remove_file<P: AsRef<Path>>(path: P) {
     if p.is_dir() {
         match fs::remove_dir(p) {
             Ok(_) => {
-                println!("\t{} has been removed.", p.to_string_lossy().into_owned());
+                println!("\tRemoved: {}.", p.to_string_lossy().into_owned());
             }
             Err(e) => eprintln!(
                 "Failed to remove {}: {}",
@@ -229,7 +229,7 @@ fn remove_file<P: AsRef<Path>>(path: P) {
     } else {
         match fs::remove_file(p) {
             Ok(_) => {
-                println!("\t{} has been removed.", p.to_string_lossy().into_owned());
+                println!("\tRemoved: {}.", p.to_string_lossy().into_owned());
             }
             Err(e) => eprintln!(
                 "Failed to remove {}: {}",
