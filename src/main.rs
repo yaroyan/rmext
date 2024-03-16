@@ -1,12 +1,14 @@
 mod archive;
 use crate::archive::zip::reader;
 use archive::zip::reader::CentralDirectoryFileHeader;
+use atty::Stream;
+use clap::CommandFactory;
 use clap::Parser;
 use core::panic;
 use std::{
     collections::HashSet,
     fs,
-    io::{self, Write},
+    io::{self, Read, Result, Write},
     path::{Path, PathBuf},
 };
 
@@ -16,7 +18,7 @@ use std::{
 struct Args {
     /// Path to archive file.
     #[arg(short, long)]
-    path: PathBuf,
+    path: Option<String>,
 
     /// Mode 1: file 2: directory 3: file and directory   
     #[arg(long, short, default_value_t = 3)]
@@ -38,24 +40,36 @@ struct Args {
 const ALLOWED_ENCODINGS: &'static [&'static str] = &["utf8", "cp932"];
 const ALLOWED_CODES: &'static [u8] = &[1, 2, 3];
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
     // let args = Args {
-    //     path: PathBuf::from("/workspaces/rmext/resource/aaa.zip"),
+    //     path: Some("/workspaces/rmext/resource/archive.zip".to_string()),
     //     mode: 3,
     //     interactive: true,
     //     recursive: true,
     //     encoding: "cp932".to_string(),
     // };
+    let archive_path = if args.path.is_none() {
+        if is_stdin(args.path.as_ref()) {
+            PathBuf::from(read_from_stdin().unwrap())
+        } else {
+            // Print help.
+            let mut cmd = Args::command();
+            let _ = cmd.print_help();
+            std::process::exit(1);
+        }
+    } else {
+        PathBuf::from(args.path.unwrap())
+    };
 
     // Validate arguments.
-    assert!(args.path.is_absolute());
+    assert!(archive_path.is_absolute());
     assert!(ALLOWED_ENCODINGS.contains(&args.encoding.to_lowercase().as_ref()));
     assert!(ALLOWED_CODES.contains(&args.mode));
 
-    let paths_to_delete = match args.path.extension().unwrap().to_string_lossy().as_ref() {
+    let paths_to_delete = match archive_path.extension().unwrap().to_string_lossy().as_ref() {
         "zip" => {
-            let mut reader = reader::ZipFileReader::new(&args.path, args.encoding.to_string());
+            let mut reader = reader::ZipFileReader::new(&archive_path, args.encoding.to_string());
             reader.seek_end_of_central_directory_record().unwrap();
             let headers = reader.read_central_directory_file_header();
             let mut codes = unpack_mode(args.mode);
@@ -63,26 +77,30 @@ fn main() -> std::io::Result<()> {
             let mut paths_to_delete = Vec::new();
             for code in &codes {
                 let search_path = match code {
-                    1 => args.path.parent().unwrap().to_path_buf(),
-                    2 => {
-                        Path::new(&args.path.parent().unwrap()).join(args.path.file_stem().unwrap())
-                    }
+                    1 => archive_path.parent().unwrap().to_path_buf(),
+                    2 => Path::new(&archive_path.parent().unwrap())
+                        .join(archive_path.file_stem().unwrap()),
                     _ => panic!("invalid mode."),
                 };
-                let content_paths =
-                    search_zip_content_path_to_delete(&args.path, &headers, &search_path);
+                let content_paths = search_zip_content_path_to_delete(&headers, &search_path);
                 paths_to_delete.extend(content_paths);
             }
             paths_to_delete.sort();
             paths_to_delete
         }
         "rar" => search_rar_content_path_to_delete(
-            &args.path,
+            &archive_path,
             &args.encoding,
-            &args.path.parent().unwrap().to_path_buf(),
+            &archive_path.parent().unwrap().to_path_buf(),
         ),
-        _ => panic!("unsupported file type: {}", args.path.to_string_lossy()),
+        _ => panic!("unsupported file type: {}", archive_path.to_string_lossy()),
     };
+
+    if paths_to_delete.is_empty() {
+        println!("Archive contents are not found.");
+        println!("Skip removing.");
+        return Ok(());
+    }
 
     println!("The following files will be deleted:");
     for delete_dir in &paths_to_delete {
@@ -99,7 +117,7 @@ fn main() -> std::io::Result<()> {
             .expect("Failed to read line");
     } else {
         buffer = String::from("y");
-        print!("{}", buffer);
+        println!("{}", buffer);
     }
 
     if buffer.trim().to_lowercase() == "y" {
@@ -111,7 +129,7 @@ fn main() -> std::io::Result<()> {
 
         if args.recursive {
             let mut ancestor_paths_to_delete = HashSet::new();
-            let parent = args.path.parent().unwrap();
+            let parent = archive_path.parent().unwrap();
             for path in &paths_to_delete {
                 for ancestor in path.ancestors() {
                     if ancestor_paths_to_delete.contains(&ancestor) || parent == ancestor {
@@ -148,6 +166,25 @@ fn main() -> std::io::Result<()> {
         println!("Abort.");
     }
     Ok(())
+}
+
+/// Detect stdin.
+fn is_stdin(input: Option<&String>) -> bool {
+    let is_request = match input {
+        Some(i) if i == "-" => true,
+        _ => false,
+    };
+    let is_pipe = !atty::is(Stream::Stdin);
+    is_request || is_pipe
+}
+
+/// Read from stdin.
+fn read_from_stdin() -> Result<String> {
+    let mut buf = String::new();
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    handle.read_to_string(&mut buf)?;
+    Ok(buf.trim().to_string())
 }
 
 /// Unpack mode to codes.
@@ -203,7 +240,6 @@ fn search_rar_content_path_to_delete<P: AsRef<Path>>(
 
 /// Search path to delete.
 fn search_zip_content_path_to_delete<P: AsRef<Path>>(
-    zip_path: P,
     headers: &Vec<CentralDirectoryFileHeader>,
     search_path: P,
 ) -> Vec<PathBuf> {
