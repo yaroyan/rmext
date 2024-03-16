@@ -35,6 +35,10 @@ struct Args {
     /// Deletes directories that will be empty after a file is deleted.
     #[arg(long, short)]
     recursive: bool,
+
+    /// List archive contents.
+    #[arg(long, short)]
+    list: bool,
 }
 
 const ALLOWED_ENCODINGS: &'static [&'static str] = &["utf8", "cp932"];
@@ -48,6 +52,7 @@ fn main() -> Result<()> {
     //     interactive: true,
     //     recursive: true,
     //     encoding: "cp932".to_string(),
+    //     list: true,
     // };
     let archive_path = if args.path.is_none() {
         if is_stdin(args.path.as_ref()) {
@@ -106,6 +111,12 @@ fn main() -> Result<()> {
     for delete_dir in &paths_to_delete {
         println!("\t{}", delete_dir.to_string_lossy());
     }
+
+    if args.list {
+        println!("Skip removing.");
+        return Ok(());
+    }
+
     print!("Do you want to continue? [Y/n] ");
     std::io::stdout().flush().unwrap();
 
