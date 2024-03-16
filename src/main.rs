@@ -47,12 +47,12 @@ const ALLOWED_CODES: &'static [u8] = &[1, 2, 3];
 fn main() -> Result<()> {
     let args = Args::parse();
     // let args = Args {
-    //     path: Some("/workspaces/rmext/resource/archive.zip".to_string()),
+    //     path: Some("archive.zip".to_string()),
     //     mode: 3,
     //     interactive: true,
     //     recursive: true,
     //     encoding: "cp932".to_string(),
-    //     list: true,
+    //     list: false,
     // };
     let archive_path = if args.path.is_none() {
         if is_stdin(args.path.as_ref()) {
@@ -68,7 +68,6 @@ fn main() -> Result<()> {
     };
 
     // Validate arguments.
-    assert!(archive_path.is_absolute());
     assert!(ALLOWED_ENCODINGS.contains(&args.encoding.to_lowercase().as_ref()));
     assert!(ALLOWED_CODES.contains(&args.mode));
 
@@ -107,7 +106,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("The following files will be deleted:");
+    println!("The following files will be Removed:");
     for delete_dir in &paths_to_delete {
         println!("\t{}", delete_dir.to_string_lossy());
     }
@@ -153,19 +152,12 @@ fn main() -> Result<()> {
             }
             let mut ancestor_paths_to_delete_sort_by_depth =
                 Vec::from_iter(ancestor_paths_to_delete);
-            ancestor_paths_to_delete_sort_by_depth.sort_by(|a, b| {
-                b.to_string_lossy()
-                    .into_owned()
-                    .matches("/")
-                    .count()
-                    .cmp(&a.to_string_lossy().into_owned().matches("/").count())
-                    .then(a.cmp(&b))
-            });
+            sort_path_by_depth(&mut ancestor_paths_to_delete_sort_by_depth);
 
             for path in ancestor_paths_to_delete_sort_by_depth {
                 if !path.read_dir().unwrap().next().is_none() {
                     println!(
-                        "{} is not empty. Skip removing.",
+                        "\t{} is not empty. Skip removing.",
                         path.to_string_lossy().into_owned()
                     );
                     continue;
@@ -272,7 +264,37 @@ fn search_zip_content_path_to_delete<P: AsRef<Path>>(
 /// Normalize zip content file name.  
 /// e.g.) `../A/../A/./B.txt => A/A/B.txt`
 fn normalize_file_name(file_name: &str) -> String {
-    file_name.replace("../", "").replace("./", "")
+    if cfg!(windows) {
+        file_name
+            .replace("/", "\\")
+            .replace("..\\", "")
+            .replace(".\\", "")
+    } else {
+        file_name
+            .replace("\\", "/")
+            .replace("../", "")
+            .replace("./", "")
+    }
+}
+
+/// Sort path by depth
+fn sort_path_by_depth<P: AsRef<Path>>(paths: &mut Vec<P>) {
+    let separator = if cfg!(windows) { "\\" } else { "/" };
+    paths.sort_by(|a, b| {
+        b.as_ref()
+            .to_string_lossy()
+            .into_owned()
+            .matches(separator)
+            .count()
+            .cmp(
+                &a.as_ref()
+                    .to_string_lossy()
+                    .into_owned()
+                    .matches(separator)
+                    .count(),
+            )
+            .then(a.as_ref().cmp(&b.as_ref()))
+    });
 }
 
 #[cfg(test)]
