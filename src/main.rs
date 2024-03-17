@@ -4,7 +4,6 @@ use archive::zip::reader::CentralDirectoryFileHeader;
 use atty::Stream;
 use clap::CommandFactory;
 use clap::Parser;
-use core::panic;
 use std::{
     collections::HashSet,
     fs,
@@ -47,7 +46,7 @@ const ALLOWED_CODES: &'static [u8] = &[1, 2, 3];
 fn main() -> Result<()> {
     let args = Args::parse();
     // let args = Args {
-    //     path: Some("archive.zip".to_string()),
+    //     path: Some("resource/broken.zip".to_string()),
     //     mode: 3,
     //     interactive: true,
     //     recursive: true,
@@ -84,7 +83,10 @@ fn main() -> Result<()> {
                     1 => archive_path.parent().unwrap().to_path_buf(),
                     2 => Path::new(&archive_path.parent().unwrap())
                         .join(archive_path.file_stem().unwrap()),
-                    _ => panic!("invalid mode."),
+                    _ => {
+                        eprintln!("invalid mode.");
+                        std::process::exit(1);
+                    }
                 };
                 let content_paths = search_zip_content_path_to_delete(&headers, &search_path);
                 paths_to_delete.extend(content_paths);
@@ -97,7 +99,10 @@ fn main() -> Result<()> {
             &args.encoding,
             &archive_path.parent().unwrap().to_path_buf(),
         ),
-        _ => panic!("unsupported file type: {}", archive_path.to_string_lossy()),
+        _ => {
+            eprintln!("unsupported file type: {}", archive_path.to_string_lossy());
+            std::process::exit(1);
+        }
     };
 
     if paths_to_delete.is_empty() {
@@ -135,8 +140,6 @@ fn main() -> Result<()> {
             remove_file(path);
         }
 
-        println!("Remove empty directory recursively.");
-
         if args.recursive {
             let mut ancestor_paths_to_delete = HashSet::new();
             let parent = archive_path.parent().unwrap();
@@ -150,6 +153,12 @@ fn main() -> Result<()> {
                     }
                 }
             }
+
+            if ancestor_paths_to_delete.is_empty() {
+                return Ok(());
+            }
+
+            println!("Remove empty directory recursively.");
             let mut ancestor_paths_to_delete_sort_by_depth =
                 Vec::from_iter(ancestor_paths_to_delete);
             sort_path_by_depth(&mut ancestor_paths_to_delete_sort_by_depth);
@@ -238,7 +247,8 @@ fn search_rar_content_path_to_delete<P: AsRef<Path>>(
     encoding: &str,
     search_path: P,
 ) -> Vec<PathBuf> {
-    panic!("Not Implemented.");
+    eprintln!("Not Implemented.");
+    std::process::exit(1);
 }
 
 /// Search path to delete.

@@ -1,4 +1,3 @@
-use core::panic;
 use std::fs::{File, Metadata};
 use std::io::{BufReader, Read, Result, Seek, SeekFrom};
 use std::path::Path;
@@ -20,6 +19,7 @@ pub struct CentralDirectoryFileHeader {
 impl ZipFileReader {
     const END_OF_CENTRAL_DIR_SIGNATURE: [u8; 4] = [0x50, 0x4b, 0x05, 0x06];
     const CENTRAL_DIRECTORY_ENTRY_SIGNATURE: [u8; 4] = [0x50, 0x4B, 0x01, 0x02];
+    const MAX_COMMENT_LENGTH: u64 = 65535;
 
     pub fn new<P: AsRef<Path>>(path: P, encoding: String) -> ZipFileReader {
         let file = match File::open(&path) {
@@ -38,28 +38,36 @@ impl ZipFileReader {
 
     pub fn seek_end_of_central_directory_record(&mut self) -> Result<()> {
         let file_size = self.metadata.len();
-        self.reader.seek(SeekFrom::Start(file_size))?;
+        self.reader.seek(SeekFrom::End(0))?;
         self.reader.seek_relative(-18)?;
         // Since the length of file comment is variable, search by following.
         self.reader.seek_relative(-4)?;
         let mut comment_length = 0;
+        let mut stream_pos = 22;
         while (comment_length + self.reader.stream_position()?) != file_size {
             let mut buf = [0u8; 4];
             while buf != Self::END_OF_CENTRAL_DIR_SIGNATURE {
-                let mut offset = 0;
+                stream_pos -= 4;
                 self.reader.read(&mut buf)?;
+
+                let mut offset = 0;
                 for (i, val) in buf.iter().rev().enumerate() {
-                    if Self::END_OF_CENTRAL_DIR_SIGNATURE
-                        [Self::END_OF_CENTRAL_DIR_SIGNATURE.len() - 1 - i]
-                        != *val
-                    {
-                        offset += 1;
+                    if Self::END_OF_CENTRAL_DIR_SIGNATURE[i] != *val {
+                        offset = i + 1;
                     }
                 }
+                offset += 4;
+                stream_pos += offset as u64;
+
+                if file_size < stream_pos || Self::MAX_COMMENT_LENGTH < stream_pos {
+                    eprintln!("End of central directory record (EOCD) not found.");
+                    std::process::exit(1);
+                }
+
                 self.reader.seek_relative(-i64::try_from(offset).unwrap())?;
             }
 
-            self.reader.seek_relative(16)?;
+            self.reader.seek_relative(24)?;
 
             comment_length = {
                 let mut buf = [0u8; 2];
@@ -154,12 +162,16 @@ impl ZipFileReader {
                                     // TODO Consider locale.
                                     encoding_rs::SHIFT_JIS.decode(&buf).0.into_owned()
                                 } else {
-                                    panic!("{}", e);
+                                    eprintln!("{}", e);
+                                    std::process::exit(1);
                                 }
                             }
                         },
                         "cp932" => encoding_rs::SHIFT_JIS.decode(&buf).0.into_owned(),
-                        _ => panic!("invalid encoding: {}", self.encoding),
+                        _ => {
+                            eprintln!("invalid encoding: {}", self.encoding);
+                            std::process::exit(1);
+                        }
                     }
                 }
             };
