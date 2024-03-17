@@ -1,3 +1,12 @@
+## Usage
+
+```bash
+# Execute against .zip files under a specific directory.
+# Windows
+while read -r f; do echo "$f" ; rmext -p "$f" -m 3 -r -e cp932; done < <(find -iname "*.zip")
+# Linux
+while read -r f; do echo "$f" ; rmext -p "$f" -m 3 -r; done < <(find -iname "*.zip")
+```
 
 ## Zip file structure
 
